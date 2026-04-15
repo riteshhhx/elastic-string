@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+    #container { position: relative; width: 100vw; height: 100vh; cursor: crosshair; }
+    video, canvas { 
+      position: absolute; top: 0; left: 0; 
+      width: 100%; height: 100%; object-fit: cover;
+      transform: scaleX(-1); 
+    }
+    #overlay-ui {
+      position: absolute; top: 20px; left: 20px; color: #00ffcc;
+      z-index: 10; pointer-events: none; text-transform: uppercase; letter-spacing: 2px;
+    }
+    .stats { font-size: 12px; margin-top: 5px; opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <video id="input_video" playsinline></video>
+    <canvas id="output_canvas"></canvas>
+    <div id="overlay-ui">
+      <div>Elastic Protocol Active</div>
+      <div id="tension-meter" class="stats">Tension: 0%</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const tensionMeter = document.getElementById('tension-meter');
+
+    let points = [];
+    const segmentCount = 20; // Smoother string
+    for (let i = 0; i < segmentCount; i++) {
+      points.push({ x: 0.5, y: 0.5 });
+    }
+
+    function onResults(results) {
+      canvasElement.width = window.innerWidth;
+      canvasElement.height = window.innerHeight;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length >= 2) {
+        const hand1 = results.multiHandLandmarks[0][8]; // Index tip
+        const hand2 = results.multiHandLandmarks[1][8]; // Index tip
+
+        // Calculate distance for tension
+        const dist = Math.hypot(hand1.x - hand2.x, hand1.y - hand2.y);
+        const tension = Math.min(dist * 150, 100); 
+        tensionMeter.innerText = `Tension: ${Math.floor(tension)}%`;
+
+        // Update anchor points
+        points[0].x = hand1.x;
+        points[0].y = hand1.y;
+        points[segmentCount - 1].x = hand2.x;
+        points[segmentCount - 1].y = hand2.y;
+
+        // Physics loop with "Stiffness" based on tension
+        const stiffness = 0.2 + (tension / 500); 
+        for (let i = 1; i < segmentCount - 1; i++) {
+          const targetX = (points[i - 1].x + points[i + 1].x) / 2;
+          const targetY = (points[i - 1].y + points[i + 1].y) / 2;
+          
+          // Jitter effect when tension is high
+          const jitter = (tension > 80) ? (Math.random() - 0.5) * 0.005 : 0;
+          
+          points[i].x += (targetX - points[i].x) * stiffness + jitter;
+          points[i].y += (targetY - points[i].y) * stiffness + jitter + 0.001; // Gravity
+        }
+
+        // Visual Styling: Color shifts from Cyan to Red based on tension
+        const color = `hsl(${180 - (tension * 1.8)}, 100%, 60%)`;
+        
+        canvasCtx.beginPath();
+        canvasCtx.lineWidth = 4 + (tension / 20);
+        canvasCtx.strokeStyle = color;
+        canvasCtx.shadowBlur = 15;
+        canvasCtx.shadowColor = color;
+        canvasCtx.lineCap = 'round';
+        canvasCtx.lineJoin = 'round';
+
+        canvasCtx.moveTo(points[0].x * canvasElement.width, points[0].y * canvasElement.height);
+        for (let i = 1; i < segmentCount; i++) {
+          canvasCtx.lineTo(points[i].x * canvasElement.width, points[i].y * canvasElement.height);
+        }
+        canvasCtx.stroke();
+      }
+      canvasCtx.restore();
+    }
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+
+    hands.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 1280,
+      height: 720
+    });
+    camera.start();
+  </script>
+</body>
+</html>
