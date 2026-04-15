@@ -1,119 +1,162 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity: Energy Weaver Protocol</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
-    #container { position: relative; width: 100vw; height: 100vh; cursor: crosshair; }
-    video, canvas { 
-      position: absolute; top: 0; left: 0; 
-      width: 100%; height: 100%; object-fit: cover;
-      transform: scaleX(-1); 
+    body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+    #video-container { position: absolute; visibility: hidden; }
+    canvas { display: block; }
+    #ui {
+      position: absolute; bottom: 30px; left: 30px;
+      color: #00ffcc; background: rgba(0,0,0,0.7);
+      padding: 15px; border-radius: 4px; z-index: 100;
+      border: 1px solid #00ffcc; text-transform: uppercase;
+      letter-spacing: 2px;
     }
-    #overlay-ui {
-      position: absolute; top: 20px; left: 20px; color: #00ffcc;
-      z-index: 10; pointer-events: none; text-transform: uppercase; letter-spacing: 2px;
-    }
-    .stats { font-size: 12px; margin-top: 5px; opacity: 0.8; }
   </style>
 </head>
 <body>
-  <div id="container">
-    <video id="input_video" playsinline></video>
-    <canvas id="output_canvas"></canvas>
-    <div id="overlay-ui">
-      <div>Elastic Protocol Active</div>
-      <div id="tension-meter" class="stats">Tension: 0%</div>
-    </div>
-  </div>
+  <div id="ui">Protocol: Active<br>Object: Stable</div>
+  <video id="input_video"></video>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <script>
+    // --- SETTINGS ---
+    const config = {
+      scaleFactor: { x: -3.5, y: -2, z: -1.5 },
+      stringStiffness: 0.15,
+      segments: 20
+    };
+
+    // 1. THREE.JS SCENE SETUP
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    document.body.appendChild(renderer.domElement);
+
+    camera.position.z = 2;
+
+    // --- LIGHTING ---
+    const ambientLight = new THREE.AmbientLight(0x202020);
+    scene.add(ambientLight);
+    const pointLight = new THREE.PointLight(0x00ffcc, 2, 5);
+    scene.add(pointLight);
+
+    // 2. CREATING 3D STRINGS (Tubes)
+    const fingerIndices = [4, 8, 12, 16, 20]; // Thumb, Index, Middle, Ring, Pinky
+    const strings = [];
+
+    fingerIndices.forEach((index, i) => {
+      // Curve for the "sag" physics
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0) // Placeholder
+      ]);
+      const geometry = new THREE.TubeGeometry(curve, config.segments, 0.008, 6, false);
+      const material = new THREE.MeshStandardMaterial({ 
+        color: new THREE.Color(`hsl(${i * 30 + 170}, 100%, 60%)`),
+        emissive: new THREE.Color(`hsl(${i * 30 + 170}, 100%, 40%)`),
+        transparent: true,
+        opacity: 0.8
+      });
+      const tube = new THREE.Mesh(geometry, material);
+      scene.add(tube);
+      strings.push({ tube, curve, index });
+    });
+
+    // 3. THE 3D OBJECT (ENERGY SPHERE)
+    const sphereGeometry = new THREE.SphereGeometry(0.1, 32, 32);
+    const sphereMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0x00ffcc,
+      emissiveIntensity: 3,
+      metalness: 0.9,
+      roughness: 0.1
+    });
+    const energySphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    scene.add(energySphere);
+
+    // Midpoint helper
+    const midPointL = new THREE.Vector3();
+    const midPointR = new THREE.Vector3();
+
+    // 4. MEDIAPIPE HANDS & PHYSICS
     const videoElement = document.getElementById('input_video');
-    const canvasElement = document.getElementById('output_canvas');
-    const canvasCtx = canvasElement.getContext('2d');
-    const tensionMeter = document.getElementById('tension-meter');
-
-    let points = [];
-    const segmentCount = 20; // Smoother string
-    for (let i = 0; i < segmentCount; i++) {
-      points.push({ x: 0.5, y: 0.5 });
-    }
-
-    function onResults(results) {
-      canvasElement.width = window.innerWidth;
-      canvasElement.height = window.innerHeight;
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length >= 2) {
-        const hand1 = results.multiHandLandmarks[0][8]; // Index tip
-        const hand2 = results.multiHandLandmarks[1][8]; // Index tip
-
-        // Calculate distance for tension
-        const dist = Math.hypot(hand1.x - hand2.x, hand1.y - hand2.y);
-        const tension = Math.min(dist * 150, 100); 
-        tensionMeter.innerText = `Tension: ${Math.floor(tension)}%`;
-
-        // Update anchor points
-        points[0].x = hand1.x;
-        points[0].y = hand1.y;
-        points[segmentCount - 1].x = hand2.x;
-        points[segmentCount - 1].y = hand2.y;
-
-        // Physics loop with "Stiffness" based on tension
-        const stiffness = 0.2 + (tension / 500); 
-        for (let i = 1; i < segmentCount - 1; i++) {
-          const targetX = (points[i - 1].x + points[i + 1].x) / 2;
-          const targetY = (points[i - 1].y + points[i + 1].y) / 2;
-          
-          // Jitter effect when tension is high
-          const jitter = (tension > 80) ? (Math.random() - 0.5) * 0.005 : 0;
-          
-          points[i].x += (targetX - points[i].x) * stiffness + jitter;
-          points[i].y += (targetY - points[i].y) * stiffness + jitter + 0.001; // Gravity
-        }
-
-        // Visual Styling: Color shifts from Cyan to Red based on tension
-        const color = `hsl(${180 - (tension * 1.8)}, 100%, 60%)`;
-        
-        canvasCtx.beginPath();
-        canvasCtx.lineWidth = 4 + (tension / 20);
-        canvasCtx.strokeStyle = color;
-        canvasCtx.shadowBlur = 15;
-        canvasCtx.shadowColor = color;
-        canvasCtx.lineCap = 'round';
-        canvasCtx.lineJoin = 'round';
-
-        canvasCtx.moveTo(points[0].x * canvasElement.width, points[0].y * canvasElement.height);
-        for (let i = 1; i < segmentCount; i++) {
-          canvasCtx.lineTo(points[i].x * canvasElement.width, points[i].y * canvasElement.height);
-        }
-        canvasCtx.stroke();
-      }
-      canvasCtx.restore();
-    }
-
     const hands = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
 
     hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.6
+      maxNumHands: 2, modelComplexity: 1,
+      minDetectionConfidence: 0.8, minTrackingConfidence: 0.8
     });
 
-    hands.onResults(onResults);
+    hands.onResults((results) => {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
+        const hL = results.multiHandLandmarks[0];
+        const hR = results.multiHandLandmarks[1];
 
-    const camera = new Camera(videoElement, {
+        strings.forEach((strObj, sIdx) => {
+          const tL = hL[strObj.index]; // Landmark tip
+          const tR = hR[strObj.index];
+
+          // Map to 3D Space (Correcting for Mirroring)
+          const start = new THREE.Vector3((tL.x-0.5)*config.scaleFactor.x, (tL.y-0.5)*config.scaleFactor.y, (tL.z)*config.scaleFactor.z);
+          const end = new THREE.Vector3((tR.x-0.5)*config.scaleFactor.x, (tR.y-0.5)*config.scaleFactor.y, (tR.z)*config.scaleFactor.z);
+
+          // Update Curve Points with smooth integration
+          const controlPoint = start.clone().lerp(end, 0.5);
+          controlPoint.y -= Math.hypot(start.x-end.x, start.y-end.y) * 0.2; // Add gravity based on distance
+
+          strObj.curve.points = [start, controlPoint, end];
+          
+          // Re-generate geometry for the tube (crucial for updates)
+          strObj.tube.geometry.dispose(); 
+          strObj.tube.geometry = new THREE.TubeGeometry(strObj.curve, config.segments, 0.008, 6, false);
+        });
+
+        // UPDATE CENTRAL SPHERE POSITION (Midpoint of Palm, landmarks 0 and 9)
+        const leftPalm = new THREE.Vector3((hL[0].x-0.5)*config.scaleFactor.x, (hL[0].y-0.5)*config.scaleFactor.y, hL[0].z*config.scaleFactor.z);
+        const rightPalm = new THREE.Vector3((hR[0].x-0.5)*config.scaleFactor.x, (hR[0].y-0.5)*config.scaleFactor.y, hR[0].z*config.scaleFactor.z);
+        energySphere.position.lerp(leftPalm.clone().lerp(rightPalm, 0.5), 0.1); // Smooth lerp to center
+        
+        // Update point light position
+        pointLight.position.copy(energySphere.position);
+      }
+    });
+
+    const cam = new Camera(videoElement, {
       onFrame: async () => { await hands.send({ image: videoElement }); },
-      width: 1280,
-      height: 720
+      width: 1280, height: 720
     });
-    camera.start();
+    cam.start();
+
+    // 5. ANIMATION & RENDER
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const elapsedTime = clock.getElapsedTime();
+      
+      // Add animation to the sphere (pulsing intensity and rotation)
+      energySphere.material.emissiveIntensity = 2.5 + Math.sin(elapsedTime * 4) * 0.5;
+      energySphere.rotation.x += 0.01;
+      energySphere.rotation.y += 0.01;
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
   </script>
 </body>
 </html>
