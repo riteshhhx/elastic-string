@@ -1,162 +1,170 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Antigravity: Energy Weaver Protocol</title>
-  <style>
-    body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
-    #video-container { position: absolute; visibility: hidden; }
-    canvas { display: block; }
-    #ui {
-      position: absolute; bottom: 30px; left: 30px;
-      color: #00ffcc; background: rgba(0,0,0,0.7);
-      padding: 15px; border-radius: 4px; z-index: 100;
-      border: 1px solid #00ffcc; text-transform: uppercase;
-      letter-spacing: 2px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity | 3D Hand Interaction</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #video-container { position: absolute; width: 100%; height: 100%; z-index: -1; transform: scaleX(-1); }
+        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.6; } /* Face visible in background */
+        canvas { display: block; position: absolute; top: 0; left: 0; }
+        
+        #ui-overlay {
+            position: absolute; top: 30px; left: 30px; color: #00ffcc;
+            background: rgba(0,0,0,0.6); padding: 20px; border-left: 4px solid #00ffcc;
+            pointer-events: none; z-index: 10;
+        }
+        #error-msg {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #ff4444; background: #222; padding: 20px; display: none;
+            border: 2px solid #ff4444; z-index: 100; text-align: center;
+        }
+    </style>
 </head>
 <body>
-  <div id="ui">Protocol: Active<br>Object: Stable</div>
-  <video id="input_video"></video>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <div id="ui-overlay">
+        <div style="font-weight: bold; letter-spacing: 2px;">ANTIGRAVITY PROTOCOL</div>
+        <div id="status">INITIALIZING SENSORS...</div>
+    </div>
 
-  <script>
-    // --- SETTINGS ---
-    const config = {
-      scaleFactor: { x: -3.5, y: -2, z: -1.5 },
-      stringStiffness: 0.15,
-      segments: 20
-    };
+    <div id="error-msg">
+        <h3>Camera Access Denied</h3>
+        <p>Ensure you are using <strong>HTTPS</strong> or <strong>Localhost</strong>.<br>
+        Check browser permissions in the address bar.</p>
+    </div>
 
-    // 1. THREE.JS SCENE SETUP
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.outputEncoding = THREE.sRGBEncoding;
-    document.body.appendChild(renderer.domElement);
+    <div id="video-container">
+        <video id="input_video" playsinline></video>
+    </div>
 
-    camera.position.z = 2;
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
-    // --- LIGHTING ---
-    const ambientLight = new THREE.AmbientLight(0x202020);
-    scene.add(ambientLight);
-    const pointLight = new THREE.PointLight(0x00ffcc, 2, 5);
-    scene.add(pointLight);
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const statusEl = document.getElementById('status');
+        const errorEl = document.getElementById('error-msg');
 
-    // 2. CREATING 3D STRINGS (Tubes)
-    const fingerIndices = [4, 8, 12, 16, 20]; // Thumb, Index, Middle, Ring, Pinky
-    const strings = [];
+        // --- THREE.JS SETUP ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
 
-    fingerIndices.forEach((index, i) => {
-      // Curve for the "sag" physics
-      const curve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0) // Placeholder
-      ]);
-      const geometry = new THREE.TubeGeometry(curve, config.segments, 0.008, 6, false);
-      const material = new THREE.MeshStandardMaterial({ 
-        color: new THREE.Color(`hsl(${i * 30 + 170}, 100%, 60%)`),
-        emissive: new THREE.Color(`hsl(${i * 30 + 170}, 100%, 40%)`),
-        transparent: true,
-        opacity: 0.8
-      });
-      const tube = new THREE.Mesh(geometry, material);
-      scene.add(tube);
-      strings.push({ tube, curve, index });
-    });
+        camera.position.z = 2.5;
 
-    // 3. THE 3D OBJECT (ENERGY SPHERE)
-    const sphereGeometry = new THREE.SphereGeometry(0.1, 32, 32);
-    const sphereMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0x00ffcc,
-      emissiveIntensity: 3,
-      metalness: 0.9,
-      roughness: 0.1
-    });
-    const energySphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-    scene.add(energySphere);
+        // Light for 3D objects
+        const light = new THREE.PointLight(0x00ffcc, 2, 10);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
 
-    // Midpoint helper
-    const midPointL = new THREE.Vector3();
-    const midPointR = new THREE.Vector3();
-
-    // 4. MEDIAPIPE HANDS & PHYSICS
-    const videoElement = document.getElementById('input_video');
-    const hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
-
-    hands.setOptions({
-      maxNumHands: 2, modelComplexity: 1,
-      minDetectionConfidence: 0.8, minTrackingConfidence: 0.8
-    });
-
-    hands.onResults((results) => {
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
-        const hL = results.multiHandLandmarks[0];
-        const hR = results.multiHandLandmarks[1];
-
-        strings.forEach((strObj, sIdx) => {
-          const tL = hL[strObj.index]; // Landmark tip
-          const tR = hR[strObj.index];
-
-          // Map to 3D Space (Correcting for Mirroring)
-          const start = new THREE.Vector3((tL.x-0.5)*config.scaleFactor.x, (tL.y-0.5)*config.scaleFactor.y, (tL.z)*config.scaleFactor.z);
-          const end = new THREE.Vector3((tR.x-0.5)*config.scaleFactor.x, (tR.y-0.5)*config.scaleFactor.y, (tR.z)*config.scaleFactor.z);
-
-          // Update Curve Points with smooth integration
-          const controlPoint = start.clone().lerp(end, 0.5);
-          controlPoint.y -= Math.hypot(start.x-end.x, start.y-end.y) * 0.2; // Add gravity based on distance
-
-          strObj.curve.points = [start, controlPoint, end];
-          
-          // Re-generate geometry for the tube (crucial for updates)
-          strObj.tube.geometry.dispose(); 
-          strObj.tube.geometry = new THREE.TubeGeometry(strObj.curve, config.segments, 0.008, 6, false);
+        // --- 3D OBJECTS: STRINGS & SPHERE ---
+        const fingerIndices = [4, 8, 12, 16, 20]; // Thumb to Pinky
+        const strings = [];
+        
+        fingerIndices.forEach((index, i) => {
+            const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
+            const geometry = new THREE.TubeGeometry(curve, 20, 0.012, 8, false);
+            const material = new THREE.MeshStandardMaterial({ 
+                color: new THREE.Color(`hsl(${i * 35 + 160}, 100%, 50%)`),
+                emissive: new THREE.Color(`hsl(${i * 35 + 160}, 100%, 30%)`),
+                metalness: 0.8, roughness: 0.2
+            });
+            const tube = new THREE.Mesh(geometry, material);
+            scene.add(tube);
+            strings.push({ tube, curve, index });
         });
 
-        // UPDATE CENTRAL SPHERE POSITION (Midpoint of Palm, landmarks 0 and 9)
-        const leftPalm = new THREE.Vector3((hL[0].x-0.5)*config.scaleFactor.x, (hL[0].y-0.5)*config.scaleFactor.y, hL[0].z*config.scaleFactor.z);
-        const rightPalm = new THREE.Vector3((hR[0].x-0.5)*config.scaleFactor.x, (hR[0].y-0.5)*config.scaleFactor.y, hR[0].z*config.scaleFactor.z);
-        energySphere.position.lerp(leftPalm.clone().lerp(rightPalm, 0.5), 0.1); // Smooth lerp to center
-        
-        // Update point light position
-        pointLight.position.copy(energySphere.position);
-      }
-    });
+        // The central 3D "Energy Core"
+        const coreGeo = new THREE.IcosahedronGeometry(0.15, 2);
+        const coreMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x00ffcc, wireframe: true });
+        const energyCore = new THREE.Mesh(coreGeo, coreMat);
+        scene.add(energyCore);
 
-    const cam = new Camera(videoElement, {
-      onFrame: async () => { await hands.send({ image: videoElement }); },
-      width: 1280, height: 720
-    });
-    cam.start();
+        // --- COORDINATE MAPPING ---
+        function mapCoord(point) {
+            // Map MediaPipe (0 to 1) to Three.js world space
+            return new THREE.Vector3(
+                (point.x - 0.5) * -4, // Invert X for mirror
+                (point.y - 0.5) * -2.5,
+                (point.z) * -2
+            );
+        }
 
-    // 5. ANIMATION & RENDER
-    const clock = new THREE.Clock();
-    function animate() {
-      requestAnimationFrame(animate);
-      const elapsedTime = clock.getElapsedTime();
-      
-      // Add animation to the sphere (pulsing intensity and rotation)
-      energySphere.material.emissiveIntensity = 2.5 + Math.sin(elapsedTime * 4) * 0.5;
-      energySphere.rotation.x += 0.01;
-      energySphere.rotation.y += 0.01;
+        // --- MEDIAPIPE LOGIC ---
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
 
-      renderer.render(scene, camera);
-    }
-    animate();
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
 
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-  </script>
+        hands.onResults((results) => {
+            statusEl.innerText = results.multiHandLandmarks.length > 0 ? "TRACKING ACTIVE" : "HANDS NOT DETECTED";
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
+                const h1 = results.multiHandLandmarks[0];
+                const h2 = results.multiHandLandmarks[1];
+
+                strings.forEach((str) => {
+                    const p1 = mapCoord(h1[str.index]);
+                    const p2 = mapCoord(h2[str.index]);
+
+                    // Midpoint with a little bit of "elastic gravity"
+                    const mid = p1.clone().lerp(p2, 0.5);
+                    mid.y -= 0.1; 
+
+                    str.curve.points = [p1, mid, p2];
+                    str.tube.geometry.dispose();
+                    str.tube.geometry = new THREE.TubeGeometry(str.curve, 20, 0.01, 8, false);
+                });
+
+                // Position the Core at the center of the two palms (Landmark 0)
+                const palm1 = mapCoord(h1[0]);
+                const palm2 = mapCoord(h2[0]);
+                energyCore.position.lerp(palm1.clone().lerp(palm2, 0.5), 0.1);
+                light.position.copy(energyCore.position);
+                energyCore.visible = true;
+            } else {
+                energyCore.visible = false;
+            }
+        });
+
+        // --- CAMERA CONTROLS & ERROR HANDLING ---
+        const cameraHelper = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({ image: videoElement }); },
+            width: 1280, height: 720
+        });
+
+        cameraHelper.start()
+            .then(() => { console.log("Camera initiated."); })
+            .catch((err) => {
+                console.error(err);
+                errorEl.style.display = 'block';
+            });
+
+        // --- ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+            energyCore.rotation.y += 0.02;
+            energyCore.rotation.x += 0.01;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
 </body>
 </html>
