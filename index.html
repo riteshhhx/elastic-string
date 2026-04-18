@@ -3,44 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Antigravity | 3D Interaction</title>
+    <title>Antigravity | 3D Hand Interaction</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
-        #video-container { position: absolute; width: 100%; height: 100%; z-index: -1; transform: scaleX(-1); }
-        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.5; }
-        canvas { display: block; position: absolute; top: 0; left: 0; }
+        #video-container { position: absolute; width: 100%; height: 100%; z-index: 1; transform: scaleX(-1); pointer-events: none; }
+        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.4; }
+        
+        /* The 3D Canvas must be on top */
+        canvas { display: block; position: absolute; top: 0; left: 0; z-index: 5; pointer-events: none; }
         
         #ui-overlay {
             position: absolute; top: 30px; left: 30px; color: #00ffcc;
-            background: rgba(0,0,0,0.7); padding: 20px; border-left: 4px solid #00ffcc;
-            pointer-events: none; z-index: 10;
+            background: rgba(0,0,0,0.8); padding: 20px; border-left: 4px solid #00ffcc;
+            z-index: 10; pointer-events: none;
         }
 
-        /* START BUTTON - Critical for Chrome */
         #start-screen {
-            position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.9);
+            position: absolute; width: 100%; height: 100%; background: #000;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 100; color: #00ffcc; text-align: center;
+            z-index: 100; color: #00ffcc;
         }
         button {
             background: transparent; border: 2px solid #00ffcc; color: #00ffcc;
-            padding: 15px 40px; font-size: 1.2rem; cursor: pointer; text-transform: uppercase;
-            margin-top: 20px; transition: 0.3s;
+            padding: 15px 40px; font-size: 1.2rem; cursor: pointer; margin-top: 20px;
         }
-        button:hover { background: #00ffcc; color: #000; }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
-        <h1>ANTIGRAVITY INTERFACE</h1>
-        <p>Ready to initialize hand-tracking sensors?</p>
-        <button onclick="startExperience()">Initialize Protocol</button>
+        <h1>ANTIGRAVITY INITIALIZED</h1>
+        <button onclick="startExperience()">Link Sensors</button>
     </div>
 
     <div id="ui-overlay">
-        <div style="font-weight: bold; letter-spacing: 2px;">SYSTEM STATUS</div>
-        <div id="status">AWAITING INITIALIZATION...</div>
+        <div style="font-weight: bold; letter-spacing: 2px;">ANTIGRAVITY OS</div>
+        <div id="status">OFFLINE</div>
     </div>
 
     <div id="video-container">
@@ -56,22 +54,34 @@
         const statusEl = document.getElementById('status');
         const startScreen = document.getElementById('start-screen');
 
-        // 1. THREE.JS SETUP
+        // 1. THREE.JS SCENE
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(renderer.domElement);
         camera.position.z = 2;
 
+        // 2. 3D OBJECTS (Energy Core & 5 Strings)
         const core = new THREE.Mesh(
-            new THREE.IcosahedronGeometry(0.15, 1),
-            new THREE.MeshStandardMaterial({ color: 0x00ffcc, wireframe: true })
+            new THREE.SphereGeometry(0.12, 16, 16),
+            new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true })
         );
         scene.add(core);
-        scene.add(new THREE.AmbientLight(0xffffff, 1));
 
-        // 2. MEDIAPIPE LOGIC
+        const fingerIndices = [4, 8, 12, 16, 20];
+        const strings = [];
+        fingerIndices.forEach((idx, i) => {
+            const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]);
+            const geometry = new THREE.TubeGeometry(curve, 20, 0.01, 8, false);
+            const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(`hsl(${i*40 + 180}, 100%, 50%)`) });
+            const mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+            strings.push({ mesh, curve, idx });
+        });
+
+        // 3. HAND TRACKING BRAIN
         const hands = new Hands({
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
@@ -79,47 +89,68 @@
         hands.setOptions({
             maxNumHands: 2,
             modelComplexity: 1,
-            minDetectionConfidence: 0.6,
-            minTrackingConfidence: 0.6
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
         });
+
+        function get3D(landmark) {
+            return new THREE.Vector3((landmark.x - 0.5) * -3.5, (landmark.y - 0.5) * -2, landmark.z * -1);
+        }
 
         hands.onResults((results) => {
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                statusEl.innerText = "SENSORS: TRACKING ACTIVE";
-                const h1 = results.multiHandLandmarks[0][9]; // Palm center
-                core.position.x = (h1.x - 0.5) * -3;
-                core.position.y = (h1.y - 0.5) * -2;
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
+                statusEl.innerText = "SENSORS: DUAL TRACKING";
+                const hL = results.multiHandLandmarks[0];
+                const hR = results.multiHandLandmarks[1];
+
+                // Update Strings
+                strings.forEach(s => {
+                    const pL = get3D(hL[s.idx]);
+                    const pR = get3D(hR[s.idx]);
+                    const mid = pL.clone().lerp(pR, 0.5);
+                    mid.y -= 0.1; // Sag
+                    s.curve.points = [pL, mid, pR];
+                    s.mesh.geometry.dispose();
+                    s.mesh.geometry = new THREE.TubeGeometry(s.curve, 20, 0.008, 8, false);
+                    s.mesh.visible = true;
+                });
+
+                // Update Core
+                const palmL = get3D(hL[9]);
+                const palmR = get3D(hR[9]);
+                core.position.lerp(palmL.clone().lerp(palmR, 0.5), 0.2);
                 core.visible = true;
             } else {
-                statusEl.innerText = "SENSORS: SEARCHING...";
+                statusEl.innerText = "SENSORS: SEARCHING FOR BOTH HANDS...";
                 core.visible = false;
+                strings.forEach(s => s.mesh.visible = false);
             }
         });
 
-        // 3. START FUNCTION
+        // 4. INITIALIZATION
         async function startExperience() {
             startScreen.style.display = 'none';
-            statusEl.innerText = "LOADING AI MODELS...";
+            statusEl.innerText = "INITIALIZING AI...";
             
-            try {
-                const cameraHelper = new Camera(videoElement, {
-                    onFrame: async () => { await hands.send({ image: videoElement }); },
-                    width: 1280, height: 720
-                });
-                await cameraHelper.start();
-                statusEl.innerText = "CAMERA ACTIVE. CALIBRATING...";
-            } catch (e) {
-                statusEl.innerText = "ERROR: CAMERA BLOCKED";
-                console.error(e);
-            }
+            const cameraHelper = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({ image: videoElement }); },
+                width: 1280, height: 720
+            });
+            cameraHelper.start();
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            core.rotation.y += 0.02;
+            core.rotation.y += 0.03;
             renderer.render(scene, camera);
         }
         animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
