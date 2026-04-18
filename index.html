@@ -3,36 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Antigravity | 3D Hand Interaction</title>
+    <title>Antigravity | 3D Interaction</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
         #video-container { position: absolute; width: 100%; height: 100%; z-index: -1; transform: scaleX(-1); }
-        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.6; } /* Face visible in background */
+        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.5; }
         canvas { display: block; position: absolute; top: 0; left: 0; }
         
         #ui-overlay {
             position: absolute; top: 30px; left: 30px; color: #00ffcc;
-            background: rgba(0,0,0,0.6); padding: 20px; border-left: 4px solid #00ffcc;
+            background: rgba(0,0,0,0.7); padding: 20px; border-left: 4px solid #00ffcc;
             pointer-events: none; z-index: 10;
         }
-        #error-msg {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #ff4444; background: #222; padding: 20px; display: none;
-            border: 2px solid #ff4444; z-index: 100; text-align: center;
+
+        /* START BUTTON - Critical for Chrome */
+        #start-screen {
+            position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.9);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; color: #00ffcc; text-align: center;
         }
+        button {
+            background: transparent; border: 2px solid #00ffcc; color: #00ffcc;
+            padding: 15px 40px; font-size: 1.2rem; cursor: pointer; text-transform: uppercase;
+            margin-top: 20px; transition: 0.3s;
+        }
+        button:hover { background: #00ffcc; color: #000; }
     </style>
 </head>
 <body>
 
-    <div id="ui-overlay">
-        <div style="font-weight: bold; letter-spacing: 2px;">ANTIGRAVITY PROTOCOL</div>
-        <div id="status">INITIALIZING SENSORS...</div>
+    <div id="start-screen">
+        <h1>ANTIGRAVITY INTERFACE</h1>
+        <p>Ready to initialize hand-tracking sensors?</p>
+        <button onclick="startExperience()">Initialize Protocol</button>
     </div>
 
-    <div id="error-msg">
-        <h3>Camera Access Denied</h3>
-        <p>Ensure you are using <strong>HTTPS</strong> or <strong>Localhost</strong>.<br>
-        Check browser permissions in the address bar.</p>
+    <div id="ui-overlay">
+        <div style="font-weight: bold; letter-spacing: 2px;">SYSTEM STATUS</div>
+        <div id="status">AWAITING INITIALIZATION...</div>
     </div>
 
     <div id="video-container">
@@ -46,56 +54,24 @@
     <script>
         const videoElement = document.getElementById('input_video');
         const statusEl = document.getElementById('status');
-        const errorEl = document.getElementById('error-msg');
+        const startScreen = document.getElementById('start-screen');
 
-        // --- THREE.JS SETUP ---
+        // 1. THREE.JS SETUP
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
+        camera.position.z = 2;
 
-        camera.position.z = 2.5;
+        const core = new THREE.Mesh(
+            new THREE.IcosahedronGeometry(0.15, 1),
+            new THREE.MeshStandardMaterial({ color: 0x00ffcc, wireframe: true })
+        );
+        scene.add(core);
+        scene.add(new THREE.AmbientLight(0xffffff, 1));
 
-        // Light for 3D objects
-        const light = new THREE.PointLight(0x00ffcc, 2, 10);
-        scene.add(light);
-        scene.add(new THREE.AmbientLight(0x404040));
-
-        // --- 3D OBJECTS: STRINGS & SPHERE ---
-        const fingerIndices = [4, 8, 12, 16, 20]; // Thumb to Pinky
-        const strings = [];
-        
-        fingerIndices.forEach((index, i) => {
-            const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
-            const geometry = new THREE.TubeGeometry(curve, 20, 0.012, 8, false);
-            const material = new THREE.MeshStandardMaterial({ 
-                color: new THREE.Color(`hsl(${i * 35 + 160}, 100%, 50%)`),
-                emissive: new THREE.Color(`hsl(${i * 35 + 160}, 100%, 30%)`),
-                metalness: 0.8, roughness: 0.2
-            });
-            const tube = new THREE.Mesh(geometry, material);
-            scene.add(tube);
-            strings.push({ tube, curve, index });
-        });
-
-        // The central 3D "Energy Core"
-        const coreGeo = new THREE.IcosahedronGeometry(0.15, 2);
-        const coreMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x00ffcc, wireframe: true });
-        const energyCore = new THREE.Mesh(coreGeo, coreMat);
-        scene.add(energyCore);
-
-        // --- COORDINATE MAPPING ---
-        function mapCoord(point) {
-            // Map MediaPipe (0 to 1) to Three.js world space
-            return new THREE.Vector3(
-                (point.x - 0.5) * -4, // Invert X for mirror
-                (point.y - 0.5) * -2.5,
-                (point.z) * -2
-            );
-        }
-
-        // --- MEDIAPIPE LOGIC ---
+        // 2. MEDIAPIPE LOGIC
         const hands = new Hands({
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
@@ -103,68 +79,47 @@
         hands.setOptions({
             maxNumHands: 2,
             modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
         });
 
         hands.onResults((results) => {
-            statusEl.innerText = results.multiHandLandmarks.length > 0 ? "TRACKING ACTIVE" : "HANDS NOT DETECTED";
-
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
-                const h1 = results.multiHandLandmarks[0];
-                const h2 = results.multiHandLandmarks[1];
-
-                strings.forEach((str) => {
-                    const p1 = mapCoord(h1[str.index]);
-                    const p2 = mapCoord(h2[str.index]);
-
-                    // Midpoint with a little bit of "elastic gravity"
-                    const mid = p1.clone().lerp(p2, 0.5);
-                    mid.y -= 0.1; 
-
-                    str.curve.points = [p1, mid, p2];
-                    str.tube.geometry.dispose();
-                    str.tube.geometry = new THREE.TubeGeometry(str.curve, 20, 0.01, 8, false);
-                });
-
-                // Position the Core at the center of the two palms (Landmark 0)
-                const palm1 = mapCoord(h1[0]);
-                const palm2 = mapCoord(h2[0]);
-                energyCore.position.lerp(palm1.clone().lerp(palm2, 0.5), 0.1);
-                light.position.copy(energyCore.position);
-                energyCore.visible = true;
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                statusEl.innerText = "SENSORS: TRACKING ACTIVE";
+                const h1 = results.multiHandLandmarks[0][9]; // Palm center
+                core.position.x = (h1.x - 0.5) * -3;
+                core.position.y = (h1.y - 0.5) * -2;
+                core.visible = true;
             } else {
-                energyCore.visible = false;
+                statusEl.innerText = "SENSORS: SEARCHING...";
+                core.visible = false;
             }
         });
 
-        // --- CAMERA CONTROLS & ERROR HANDLING ---
-        const cameraHelper = new Camera(videoElement, {
-            onFrame: async () => { await hands.send({ image: videoElement }); },
-            width: 1280, height: 720
-        });
+        // 3. START FUNCTION
+        async function startExperience() {
+            startScreen.style.display = 'none';
+            statusEl.innerText = "LOADING AI MODELS...";
+            
+            try {
+                const cameraHelper = new Camera(videoElement, {
+                    onFrame: async () => { await hands.send({ image: videoElement }); },
+                    width: 1280, height: 720
+                });
+                await cameraHelper.start();
+                statusEl.innerText = "CAMERA ACTIVE. CALIBRATING...";
+            } catch (e) {
+                statusEl.innerText = "ERROR: CAMERA BLOCKED";
+                console.error(e);
+            }
+        }
 
-        cameraHelper.start()
-            .then(() => { console.log("Camera initiated."); })
-            .catch((err) => {
-                console.error(err);
-                errorEl.style.display = 'block';
-            });
-
-        // --- ANIMATION LOOP ---
         function animate() {
             requestAnimationFrame(animate);
-            energyCore.rotation.y += 0.02;
-            energyCore.rotation.x += 0.01;
+            core.rotation.y += 0.02;
             renderer.render(scene, camera);
         }
         animate();
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
     </script>
 </body>
 </html>
